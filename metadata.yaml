@@ -1,0 +1,7 @@
+name: astrbot_plugin_rate_limiter
+display_name: 对话频率限制
+desc: 限制私聊/群聊在时间窗口内的对话次数，超限后不再调用 LLM，由插件直接回复提示
+short_desc: 防止刷屏和 token 滥用，按时间窗口限制对话频率
+author: yuebai
+version: 1.3.0
+repo: ""

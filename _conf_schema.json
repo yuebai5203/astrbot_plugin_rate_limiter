@@ -1,0 +1,72 @@
+{
+  "private_chat_limit": {
+    "description": "私聊限制次数（全局默认）",
+    "type": "int",
+    "default": 10,
+    "hint": "每个用户每小时在私聊中最多可以对话的次数（未单独设置的用户使用此值）"
+  },
+  "group_chat_limit": {
+    "description": "群聊限制次数（全局默认）",
+    "type": "int",
+    "default": 20,
+    "hint": "每个群每小时最多可以对话的次数（未单独设置的群使用此值）"
+  },
+  "window_minutes": {
+    "description": "时间窗口（分钟）",
+    "type": "int",
+    "default": 60,
+    "hint": "频率限制的时间窗口长度，单位分钟"
+  },
+  "limit_message": {
+    "description": "超限提示消息",
+    "type": "string",
+    "default": "你说话太快了，请休息一下再来找我~（还需等待 {remain}）",
+    "hint": "超限时回复的消息。{remain} 替换为剩余等待时间"
+  },
+  "enable_private_limit": {
+    "description": "启用私聊限制",
+    "type": "bool",
+    "default": true
+  },
+  "enable_group_limit": {
+    "description": "启用群聊限制",
+    "type": "bool",
+    "default": true
+  },
+  "_sep1": {
+    "description": "── 白名单 ──",
+    "type": "string",
+    "default": "",
+    "invisible": true
+  },
+  "whitelist_users": {
+    "description": "用户白名单",
+    "type": "list",
+    "default": [],
+    "hint": "这些 QQ 号不受任何限制，填入 QQ 号（每行一个）"
+  },
+  "whitelist_groups": {
+    "description": "群聊白名单",
+    "type": "list",
+    "default": [],
+    "hint": "这些群号不受任何限制，填入群号（每行一个）"
+  },
+  "_sep2": {
+    "description": "── 单独限制 ──",
+    "type": "string",
+    "default": "",
+    "invisible": true
+  },
+  "custom_user_limits": {
+    "description": "用户单独限制",
+    "type": "list",
+    "default": [],
+    "hint": "格式: QQ号:次数 或 QQ号1,QQ号2:次数（批量）。如 601514573:50 或 601514573,123456789:50"
+  },
+  "custom_group_limits": {
+    "description": "群聊单独限制",
+    "type": "list",
+    "default": [],
+    "hint": "格式: 群号:次数 或 群号1,群号2:次数（批量）。如 601514573:100 或 601514573,123456789:100"
+  }
+}
