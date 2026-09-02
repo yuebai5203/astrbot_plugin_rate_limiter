@@ -8,20 +8,26 @@
   "group_chat_limit": {
     "description": "群聊限制次数（全局默认）",
     "type": "int",
-    "default": 20,
-    "hint": "每个群每小时最多可以对话的次数（未单独设置的群使用此值）"
+    "default": 30,
+    "hint": "每个群每小时最多可以对话的次数，整群共享该额度（未单独设置的群使用此值）"
   },
   "window_minutes": {
     "description": "时间窗口（分钟）",
     "type": "int",
     "default": 60,
-    "hint": "频率限制的时间窗口长度，单位分钟"
+    "hint": "滑动窗口长度。窗口内最旧一条记录滑出后即恢复一条额度"
+  },
+  "mute_seconds": {
+    "description": "提示后静默秒数",
+    "type": "int",
+    "default": 60,
+    "hint": "额度用尽提醒/超限提示发出后，这段时间内该会话的消息一律不回复，防连发刷屏；结束后才恢复正常判断"
   },
   "limit_message": {
-    "description": "超限提示消息",
+    "description": "超限/额度用尽提示消息",
     "type": "string",
-    "default": "你说话太快了，请休息一下再来找我~（还需等待 {remain}）",
-    "hint": "超限时回复的消息。{remain} 替换为剩余等待时间"
+    "default": "本小时对话次数已用完（{used}/{limit}），最早 {remain} 后可继续聊天~",
+    "hint": "超限时回复、以及额度内最后一条放行时单独发送的提醒。可用占位符：{used}=已用次数 {limit}=上限 {remain}=真实剩余等待时间（如 10分30秒）"
   },
   "enable_private_limit": {
     "description": "启用私聊限制",
