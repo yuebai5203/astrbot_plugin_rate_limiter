@@ -63,11 +63,23 @@
     "default": "",
     "invisible": true
   },
+  "enable_custom_user_limits": {
+    "description": "启用单独用户限制",
+    "type": "bool",
+    "default": true,
+    "hint": "关闭后下方填的单独用户全部不生效，所有私聊用户统一走全局私聊限制"
+  },
+  "custom_user_limits_count": {
+    "description": "单独用户限制次数（默认）",
+    "type": "int",
+    "default": 20,
+    "hint": "单独限制列表中未单独写次数的用户，统一按此条数限制（每小时）"
+  },
   "custom_user_limits": {
-    "description": "用户单独限制",
+    "description": "单独限制的用户",
     "type": "list",
     "default": [],
-    "hint": "格式: QQ号:次数 或 QQ号1,QQ号2:次数（批量）。如 601514573:50 或 601514573,123456789:50"
+    "hint": "每行一个 QQ 号，统一使用上方的默认次数；也可写 QQ号:次数 为该用户单独指定（如 601514573:50），或 QQ号1,QQ号2:次数 批量"
   },
   "custom_group_limits": {
     "description": "群聊单独限制",

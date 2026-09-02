@@ -13,8 +13,13 @@ v1.4.0 变更：
 - 群聊默认上限 20 → 30
 - 限制提示支持 {used} {limit} {remain} 占位
 
+v1.5.0 变更：
+- 新增「启用单独用户限制」开关（enable_custom_user_limits），关闭后单独用户限制全部不生效
+- 单独用户限制支持两种填法：纯 QQ 号（统一使用 custom_user_limits_count 默认条数）
+  或 QQ号:次数（为该用户单独指定条数，覆盖默认）
+
 Author: yuebai
-Version: 1.4.0
+Version: 1.5.0
 """
 
 import time
@@ -30,7 +35,7 @@ from astrbot.api.message_components import At
     "astrbot_plugin_rate_limiter",
     "yuebai",
     "对话频率限制：限制私聊/群聊对话次数，支持白名单和单独限制",
-    "1.4.0",
+    "1.5.0",
 )
 class RateLimiter(Star):
 
@@ -76,7 +81,37 @@ class RateLimiter(Star):
         return result
 
     def _custom_user_limits(self) -> dict[str, int]:
-        return self._parse_custom_limits("custom_user_limits")
+        """
+        单独用户限制。
+
+        未启用（enable_custom_user_limits=false）时返回空，全部走全局私聊限制。
+        列表项两种填法：
+          - 纯 QQ 号            → 使用 custom_user_limits_count 默认条数
+          - QQ号:次数 / 批量     → 单独指定条数，覆盖默认
+        """
+        if not self.config.get("enable_custom_user_limits", True):
+            return {}
+        default_count = int(self.config.get("custom_user_limits_count", 20) or 20)
+        result: dict[str, int] = {}
+        for item in self.config.get("custom_user_limits", []):
+            item = str(item).strip()
+            if not item:
+                continue
+            if ":" in item:
+                ids_part, limit_part = item.rsplit(":", 1)
+                try:
+                    limit_val = int(limit_part.strip())
+                except ValueError:
+                    logger.warning(f"[RateLimiter] 无效的限制次数: {item}")
+                    continue
+            else:
+                ids_part = item
+                limit_val = default_count
+            for uid in ids_part.split(","):
+                uid = uid.strip()
+                if uid:
+                    result[uid] = limit_val
+        return result
 
     def _custom_group_limits(self) -> dict[str, int]:
         return self._parse_custom_limits("custom_group_limits")
@@ -85,7 +120,8 @@ class RateLimiter(Star):
         logger.info(
             f"[RateLimiter] 配置加载 | 白名单用户={len(self._whitelist_users())} "
             f"白名单群={len(self._whitelist_groups())} "
-            f"单独用户限制={len(self._custom_user_limits())} "
+            f"单独用户限制={'开' if self.config.get('enable_custom_user_limits', True) else '关'}"
+            f"({len(self._custom_user_limits())}人, 默认{self.config.get('custom_user_limits_count', 20)}条/时) "
             f"单独群限制={len(self._custom_group_limits())} | "
             f"群上限={self.config.get('group_chat_limit', 30)}/时 "
             f"私聊上限={self.config.get('private_chat_limit', 10)}/时 "
