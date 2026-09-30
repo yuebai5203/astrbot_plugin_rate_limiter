@@ -1,5 +1,5 @@
 """
-astrbot_plugin_rate_limiter - 对话频率限制插件 v1.4.0
+astrbot_plugin_rate_limiter - 对话频率限制插件 v1.6.0
 
 滑动窗口限流：任意 window_minutes 分钟内，私聊/群聊对话次数不超过上限，
 超限后不再调用 LLM，由插件直接回复提示。
@@ -18,8 +18,17 @@ v1.5.0 变更：
 - 单独用户限制支持两种填法：纯 QQ 号（统一使用 custom_user_limits_count 默认条数）
   或 QQ号:次数（为该用户单独指定条数，覆盖默认）
 
+v1.6.0 变更：
+- 群聊不再只统计「@机器人」：引用回复、唤醒前缀等一切能唤起 LLM 的群消息都计入额度，
+  堵住「不计数却照常消耗 token」的绕过路径
+- 超限后按唤醒方式分流：@机器人 才发提示（保留静默保护防刷屏），
+  非 @ 唤醒的消息静默拦截，不回复、不打扰群聊
+- 私聊超限仍照旧发提示（私聊没有 @ 概念）
+- 修复额度配置为 0 时 _real_unlock_wait 对空记录调用 min() 抛 ValueError、
+  异常被框架吞掉导致限流静默失效的问题；额度 <= 0 沿用 AstrBot 内置限流语义，按未启用处理
+
 Author: yuebai
-Version: 1.5.0
+Version: 1.6.0
 """
 
 import time
@@ -35,7 +44,7 @@ from astrbot.api.message_components import At
     "astrbot_plugin_rate_limiter",
     "yuebai",
     "对话频率限制：限制私聊/群聊对话次数，支持白名单和单独限制",
-    "1.5.0",
+    "1.6.0",
 )
 class RateLimiter(Star):
 
@@ -222,14 +231,15 @@ class RateLimiter(Star):
             # ── 群聊 ──
             if not self.config.get("enable_group_limit", True):
                 return
-            if not self._is_at_bot(msg):
-                return
 
             # 优先使用单独限制，否则用全局默认
             limit = self._custom_group_limits().get(group_id, self.config.get("group_chat_limit", 30))
             key = f"group:{group_id}"
             chat_type = "群聊"
             target_name = f"群{group_id}"
+            # 只有「@机器人」的消息才向群内发提示；引用回复、唤醒前缀这类背景唤醒
+            # 超限后一律静默拦截，不在群里刷屏
+            notify_user = self._is_at_bot(msg)
         else:
             # ── 私聊 ──
             if not self.config.get("enable_private_limit", True):
@@ -240,6 +250,17 @@ class RateLimiter(Star):
             key = f"private:{sender_id}"
             chat_type = "私聊"
             target_name = f"用户{sender_id}"
+            # 私聊没有 @ 概念，超限必须让用户知道
+            notify_user = True
+
+        # 额度 <= 0 沿用 AstrBot 内置限流（RateLimitStage）的语义：视为未启用，不做限制。
+        # 同时避免下面 _real_unlock_wait 在空记录上调用 min() 抛 ValueError。
+        if limit <= 0:
+            logger.info(
+                f"[RateLimiter] 跳过 | {chat_type} | {target_name} | "
+                f"额度配置为 {limit}，按未启用处理"
+            )
+            return
 
         # 清理过期记录 + 检查
         current_timestamps = self._clean_expired(key, window_seconds)
@@ -247,6 +268,15 @@ class RateLimiter(Star):
 
         if current_count >= limit:
             # ── 已超限 ──
+            if not notify_user:
+                # 非 @ 唤醒（引用回复 / 唤醒前缀）：静默拦截，不回复，LLM 收不到
+                logger.info(
+                    f"[RateLimiter] 静默拦截(未@) | {chat_type} | {target_name} | "
+                    f"当前={current_count}/{limit} | 窗口={window_minutes}分钟"
+                )
+                event.stop_event()
+                return
+
             if self._is_muted(key):
                 # 静默期：不回复（刚提示过，防连发刷屏）
                 logger.debug(
@@ -280,8 +310,10 @@ class RateLimiter(Star):
         self._usage[key].append(now)
         current_count += 1
 
-        # 这条是额度内最后一条：单独发一条提醒（不影响本次正常回复流程）
-        if current_count >= limit:
+        # 这条是额度内最后一条：单独发一条提醒（不影响本次正常回复流程）。
+        # 仅 @机器人 / 私聊 才提醒；非 @ 唤醒用满额度时保持安静，也不进静默期，
+        # 否则会把后续 @机器人 的提示一起静默掉。
+        if notify_user and current_count >= limit:
             remain = self._real_unlock_wait(self._usage[key], window_seconds)
             quota_msg = self._compose_message(
                 self.config.get("limit_message", self._default_limit_message()),
