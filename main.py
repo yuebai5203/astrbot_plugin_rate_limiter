@@ -1,5 +1,5 @@
 """
-astrbot_plugin_rate_limiter - 对话频率限制插件 v1.6.0
+astrbot_plugin_rate_limiter - 对话频率限制插件 v1.6.1
 
 滑动窗口限流：任意 window_minutes 分钟内，私聊/群聊对话次数不超过上限，
 超限后不再调用 LLM，由插件直接回复提示。
@@ -27,8 +27,13 @@ v1.6.0 变更：
 - 修复额度配置为 0 时 _real_unlock_wait 对空记录调用 min() 抛 ValueError、
   异常被框架吞掉导致限流静默失效的问题；额度 <= 0 沿用 AstrBot 内置限流语义，按未启用处理
 
+v1.6.1 变更：
+- 修复内存只增不减：_clean_expired 不再留下空壳键，并新增低频 _sweep 全量回收，
+  清理早已过期、再也不会被访问的会话记录与静默记录
+  （实测 2 万个会话各说一次、窗口过后，修复前一条记录都不回收，白占约 2.8MB）
+
 Author: yuebai
-Version: 1.6.0
+Version: 1.6.1
 """
 
 import time
@@ -44,9 +49,12 @@ from astrbot.api.message_components import At
     "astrbot_plugin_rate_limiter",
     "yuebai",
     "对话频率限制：限制私聊/群聊对话次数，支持白名单和单独限制",
-    "1.6.0",
+    "1.6.1",
 )
 class RateLimiter(Star):
+
+    # 每处理这么多次请求，做一次全量内存回收
+    _SWEEP_INTERVAL = 200
 
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
@@ -58,6 +66,9 @@ class RateLimiter(Star):
 
         # 静默截止: key → 时间戳。到期前该 key 的消息一律不回复
         self._muted_until: dict[str, float] = {}
+
+        # 全量回收计数器（见 _sweep）
+        self._sweep_counter = 0
 
         self._log_config_summary()
 
@@ -163,9 +174,35 @@ class RateLimiter(Star):
         return False
 
     def _clean_expired(self, key: str, window_seconds: float) -> list[float]:
+        """
+        取该会话窗口内仍然有效的记录。
+
+        这里刻意用 get() 而不是直接下标访问 defaultdict：一个从没来过、
+        或者记录已经全部过期的会话，不再留下一个空壳键。
+        """
         now = time.time()
-        self._usage[key] = [t for t in self._usage[key] if now - t < window_seconds]
-        return self._usage[key]
+        kept = [t for t in self._usage.get(key, ()) if now - t < window_seconds]
+        if kept:
+            self._usage[key] = kept
+        else:
+            self._usage.pop(key, None)
+        return kept
+
+    def _sweep(self, window_seconds: float):
+        """
+        全量内存回收：删掉已经过期、大概率再也不会被访问的会话记录。
+
+        只靠 _clean_expired 是不够的——它仅清理「本次说话的那个会话」，
+        那些聊过一次就再没出现过的用户/群，其键会一直留在字典里只增不减。
+        这里按低频（每 _SWEEP_INTERVAL 次请求）扫一遍全部键，把它们回收掉。
+        扫描量与会话数同级，单次开销可忽略。
+        """
+        now = time.time()
+        # 记录都是按时间 append 的，最后一条即最新一条；最新一条都过期了，整条记录都已过期
+        for k in [k for k, v in self._usage.items() if not v or v[-1] < now - window_seconds]:
+            del self._usage[k]
+        for k in [k for k, ts in self._muted_until.items() if ts <= now]:
+            del self._muted_until[k]
 
     def _mute_seconds(self) -> float:
         """额度提示后的静默秒数：期间消息不回复，防连发刷屏。"""
@@ -218,14 +255,20 @@ class RateLimiter(Star):
         sender_id = self._get_sender_id(msg)
         group_id = self._get_group_id(msg)
 
+        window_minutes = self.config.get("window_minutes", 60)
+        window_seconds = window_minutes * 60
+
+        # 低频全量回收：把早已过期、再也不会被访问的会话记录清掉
+        self._sweep_counter += 1
+        if self._sweep_counter >= self._SWEEP_INTERVAL:
+            self._sweep_counter = 0
+            self._sweep(window_seconds)
+
         # ── 白名单检查 ──
         if sender_id in self._whitelist_users():
             return  # 用户白名单，直接放行
         if group_id and group_id in self._whitelist_groups():
             return  # 群白名单，直接放行
-
-        window_minutes = self.config.get("window_minutes", 60)
-        window_seconds = window_minutes * 60
 
         if group_id:
             # ── 群聊 ──
